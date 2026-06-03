@@ -1,15 +1,21 @@
+
 #include "lvgl.h"
+#include <LD2450.h>
+
+HardwareSerial Serial6(PC7, PC6);
+
+LD2450 ld2450;
 
 static void event_handler(lv_event_t * e)
 {
-    lv_event_code_t code = lv_event_get_code(e);
+  lv_event_code_t code = lv_event_get_code(e);
 
-    if(code == LV_EVENT_CLICKED) {
-        LV_LOG_USER("Clicked");
-    }
-    else if(code == LV_EVENT_VALUE_CHANGED) {
+  if(code == LV_EVENT_CLICKED) {
+      LV_LOG_USER("Clicked");
+  }
+  else if(code == LV_EVENT_VALUE_CHANGED) {
         LV_LOG_USER("Toggled");
-    }
+  }
 }
 
 void testLvgl()
@@ -46,6 +52,16 @@ void testLvgl()
 
 void mySetup()
 {
+  Serial.begin(115200);
+  Serial.println("Initializing...");
+  ld2450.begin(Serial6, false);
+
+  if(!ld2450.waitForSensorMessage()){
+    Serial.println("SENSOR CONNECTION SEEMS OK");
+  }else{
+    Serial.println("SENSOR TEST: GOT NO VALID SENSORDATA - PLEASE CHECK CONNECTION!");
+  }
+
   // à décommenter pour tester la démo
   // lv_demo_widgets();
 

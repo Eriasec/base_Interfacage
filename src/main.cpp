@@ -5,6 +5,10 @@
 HardwareSerial Serial6(PC7, PC6);
 
 LD2450 ld2450;
+int sensorGotValidTargets = -3;
+int receiveBuffer[LD2450_MAX_SENSOR_TARGETS];
+lv_obj_t * text;
+char buf[32];
 
 static void event_handler(lv_event_t * e)
 {
@@ -41,6 +45,10 @@ void testLvgl()
   label = lv_label_create(btn2);
   lv_label_set_text(label, "Toggle");
   lv_obj_center(label);
+
+  text = lv_label_create(lv_screen_active());
+  lv_label_set_text(text, "Hello, World!");
+  lv_obj_align(text, LV_ALIGN_CENTER, 0, 0);
 }
 
 #ifdef ARDUINO
@@ -56,12 +64,6 @@ void mySetup()
   Serial.println("Initializing...");
   ld2450.begin(Serial6, false);
 
-  if(!ld2450.waitForSensorMessage()){
-    Serial.println("SENSOR CONNECTION SEEMS OK");
-  }else{
-    Serial.println("SENSOR TEST: GOT NO VALID SENSORDATA - PLEASE CHECK CONNECTION!");
-  }
-
   // à décommenter pour tester la démo
   // lv_demo_widgets();
 
@@ -71,7 +73,22 @@ void mySetup()
 
 void loop()
 {
-  // Inactif (pour mise en veille du processeur)
+  sensorGotValidTargets = ld2450.read();
+  if(sensorGotValidTargets >= 0){
+    Serial.print("Valid targets detected: ");
+    Serial.println(sensorGotValidTargets);
+    Serial.println("Target details: ");
+    Serial.println(ld2450.getLastTargetMessage());
+    snprintf(buf, sizeof(buf), "Cibles: %d", sensorGotValidTargets);
+    lv_label_set_text(text, buf);
+  }
+  // else {
+  //   Serial.print("ERROR : ");
+  //   Serial.println(sensorGotValidTargets);
+  // }
+
+  //lv_label_set_text(text, String(sensorGotValidTargets).c_str());
+  delay(500);
 }
 
 void myTask(void *pvParameters)

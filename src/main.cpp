@@ -12,8 +12,10 @@ class Target {
     int16_t y;
     int16_t speed;
     int16_t resolution;
+    uint16_t absoluteDistance;
+    int8_t angle;
 
-    Target() : x(0), y(0), speed(0), resolution(0) {}
+    Target() : x(0), y(0), speed(0), resolution(0), absoluteDistance(0), angle(0) {}
 
     void ProcessTargetData(char data[8]) {
       x = data[0];
@@ -32,6 +34,8 @@ class Target {
         speed = -speed; // Convert to negative value if needed
       }
       resolution = (data[7] << 8) | data[6];
+      absoluteDistance = abs(x) + abs(y); // Calculate absolute distance as the sum of absolute x and y values
+      angle = (atan2(y, x) * 180 / PI) - 90; // Calculate angle in degrees
     }
 };
 
@@ -72,57 +76,134 @@ class LD2450 {
 
 HardwareSerial Serial6(PC7, PC6);
 
-lv_obj_t * text;
+lv_obj_t * targetPoint = nullptr;
+lv_obj_t * targetPoint2 = nullptr;
+lv_obj_t * targetPoint3 = nullptr;
+lv_obj_t * targetLabel = nullptr;
+int selectedTarget = -1;
 Target target1;
 LD2450 ld2450;
 
+#define LD2450_MAX_RANGE_MM 8000
 
-static void event_handler(lv_event_t * e)
+static void update_target_selection_style(void);
+
+static int map_value(int value, int in_min, int in_max, int out_min, int out_max)
 {
-  lv_event_code_t code = lv_event_get_code(e);
+  if (in_max == in_min) return out_min;
+  long scaled = (long)(value - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+  return (int)scaled;
+}
 
-  if(code == LV_EVENT_CLICKED) {
-      LV_LOG_USER("Clicked");
+static void update_target_point_obj(lv_obj_t * obj, int index)
+{
+  if (obj == nullptr) return;
+
+  int x = ld2450.targets[index].x;
+  int y = ld2450.targets[index].y;
+
+  int screen_w = lv_obj_get_width(lv_screen_active());
+  int screen_h = lv_obj_get_height(lv_screen_active());
+
+  int px = map_value(x, -LD2450_MAX_RANGE_MM, LD2450_MAX_RANGE_MM, 0, screen_w - 10);
+  int py = map_value(y, 0, LD2450_MAX_RANGE_MM, screen_h - 10, 0);
+
+  px = LV_CLAMP(px, 0, screen_w - 10);
+  py = LV_CLAMP(py, 0, screen_h - 10);
+
+  lv_obj_set_pos(obj, px, py);
+}
+
+static void update_target_point(void)
+{
+  update_target_point_obj(targetPoint, 0);
+  update_target_point_obj(targetPoint2, 1);
+  update_target_point_obj(targetPoint3, 2);
+
+  update_target_selection_style();
+
+  if (targetLabel != nullptr && selectedTarget < 0) {
+    lv_label_set_text_fmt(targetLabel, "T1:%d/%d  T2:%d/%d  T3:%d/%d",
+                          ld2450.targets[0].x, ld2450.targets[0].y,
+                          ld2450.targets[1].x, ld2450.targets[1].y,
+                          ld2450.targets[2].x, ld2450.targets[2].y);
   }
-  else if(code == LV_EVENT_VALUE_CHANGED) {
-        LV_LOG_USER("Toggled");
+}
+
+
+static void target_click_cb(lv_event_t * e)
+{
+  int index = (int)(intptr_t)lv_event_get_user_data(e);
+  selectedTarget = index;
+
+  if (targetLabel != nullptr) {
+    lv_label_set_text_fmt(targetLabel, "Cible selectionnee: T%d (X:%d Y:%d)",
+                          index + 1,
+                          ld2450.targets[index].x,
+                          ld2450.targets[index].y);
+  }
+}
+
+static void update_target_selection_style(void)
+{
+  lv_obj_t * points[] = { targetPoint, targetPoint2, targetPoint3 };
+  const lv_color_t colors[] = { lv_color_hex(0xFF0000), lv_color_hex(0x00FF00), lv_color_hex(0x00A5FF) };
+
+  for (int i = 0; i < 3; ++i) {
+    if (points[i] == nullptr) continue;
+
+    bool is_selected = (selectedTarget == i);
+    lv_obj_set_size(points[i], is_selected ? 14 : 10, is_selected ? 14 : 10);
+    lv_obj_set_style_bg_color(points[i], colors[i], 0);
+    lv_obj_set_style_border_color(points[i], is_selected ? lv_color_white() : lv_color_hex(0x202020), 0);
+    lv_obj_set_style_border_width(points[i], is_selected ? 2 : 0, 0);
   }
 }
 
 void testLvgl()
 {
-    /*Create a buffer for the canvas*/
-    LV_DRAW_BUF_DEFINE_STATIC(draw_buf, CANVAS_WIDTH, CANVAS_HEIGHT, LV_COLOR_FORMAT_ARGB8888);
-    LV_DRAW_BUF_INIT_STATIC(draw_buf);
+  lv_obj_set_style_bg_color(lv_screen_active(), lv_color_hex(0x101820), 0);
 
-    /*Create a canvas and initialize its palette*/
-    lv_obj_t * canvas = lv_canvas_create(lv_screen_active());
-    lv_canvas_set_draw_buf(canvas, &draw_buf);
-    lv_obj_center(canvas);
+  targetPoint = lv_obj_create(lv_screen_active());
+  lv_obj_set_size(targetPoint, 10, 10);
+  lv_obj_set_style_radius(targetPoint, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_bg_color(targetPoint, lv_color_hex(0xFF0000), 0);
+  lv_obj_set_style_border_width(targetPoint, 0, 0);
+  lv_obj_set_style_pad_all(targetPoint, 0, 0);
+  lv_obj_add_flag(targetPoint, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(targetPoint, target_click_cb, LV_EVENT_CLICKED, (void *)0);
+  lv_obj_set_pos(targetPoint, 0, 0);
 
-    /*Red background (There is no dedicated alpha channel in indexed images so LV_OPA_COVER is ignored)*/
-    lv_canvas_fill_bg(canvas, lv_palette_main(LV_PALETTE_BLUE), LV_OPA_COVER);
+  targetPoint2 = lv_obj_create(lv_screen_active());
+  lv_obj_set_size(targetPoint2, 10, 10);
+  lv_obj_set_style_radius(targetPoint2, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_bg_color(targetPoint2, lv_color_hex(0x00FF00), 0);
+  lv_obj_set_style_border_width(targetPoint2, 0, 0);
+  lv_obj_set_style_pad_all(targetPoint2, 0, 0);
+  lv_obj_add_flag(targetPoint2, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(targetPoint2, target_click_cb, LV_EVENT_CLICKED, (void *)1);
+  lv_obj_set_pos(targetPoint2, 0, 0);
 
-    /*Create hole on the canvas*/
-    int32_t x;
-    int32_t y;
-    for(y = 0; y < 0; y++) {
-        for(x = 0; x < CANVAS_WIDTH; x++) {
-            lv_canvas_set_px(canvas, x, y, lv_palette_main(LV_PALETTE_BLUE), LV_OPA_50);
-        }
-    }
+  targetPoint3 = lv_obj_create(lv_screen_active());
+  lv_obj_set_size(targetPoint3, 10, 10);
+  lv_obj_set_style_radius(targetPoint3, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_bg_color(targetPoint3, lv_color_hex(0x00A5FF), 0);
+  lv_obj_set_style_border_width(targetPoint3, 0, 0);
+  lv_obj_set_style_pad_all(targetPoint3, 0, 0);
+  lv_obj_add_flag(targetPoint3, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(targetPoint3, target_click_cb, LV_EVENT_CLICKED, (void *)2);
+  lv_obj_set_pos(targetPoint3, 0, 0);
 
-    for(y = 20; y < 30; y++) {
-        for(x = 5; x < 75; x++) {
-            lv_canvas_set_px(canvas, x, y, lv_palette_main(LV_PALETTE_BLUE), LV_OPA_20);
-        }
-    }
-
-    for(y = 30; y < 40; y++) {
-        for(x = 5; x < 75; x++) {
-            lv_canvas_set_px(canvas, x, y, lv_palette_main(LV_PALETTE_BLUE), LV_OPA_0);
-        }
-    }
+  targetLabel = lv_label_create(lv_screen_active());
+  lv_obj_set_size(targetLabel, lv_pct(95), LV_SIZE_CONTENT);
+  lv_obj_set_style_text_color(targetLabel, lv_color_hex(0xFFFFFF), 0);
+  lv_obj_set_style_text_font(targetLabel, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_bg_opa(targetLabel, LV_OPA_90, 0);
+  lv_obj_set_style_bg_color(targetLabel, lv_color_hex(0x000000), 0);
+  lv_obj_set_style_pad_all(targetLabel, 8, 0);
+  lv_obj_set_style_radius(targetLabel, 6, 0);
+  lv_obj_align(targetLabel, LV_ALIGN_TOP_LEFT, 6, 6);
+  lv_label_set_text(targetLabel, "Attente des mesures...");
 }
 
 #ifdef ARDUINO
@@ -150,15 +231,24 @@ void mySetup()
 void loop()
 {
   while (Serial6.available()) {
-    ld2450.read();
-    Serial.print("X: ");
-    Serial.print(ld2450.targets[0].x);
-    Serial.print(" Y: ");
-    Serial.print(ld2450.targets[0].y);
-    Serial.print(" Speed: ");
-    Serial.print(ld2450.targets[0].speed);
-    Serial.print(" Resolution: ");
-    Serial.println(ld2450.targets[0].resolution);
+    if (ld2450.read()) {
+      if (lvglLock(pdMS_TO_TICKS(10))) {
+        update_target_point();
+        lvglUnlock();
+      }
+      // Serial.print("X: ");
+      // Serial.print(ld2450.targets[0].x);
+      // Serial.print(" Y: ");
+      // Serial.print(ld2450.targets[0].y);
+      // Serial.print(" Speed: ");
+      // Serial.print(ld2450.targets[0].speed);
+      // Serial.print(" Resolution: ");
+      // Serial.print(ld2450.targets[0].resolution);
+      // Serial.print(" Absolute Distance: ");
+      // Serial.print(ld2450.targets[0].absoluteDistance);
+      // Serial.print(" Angle: ");
+      // Serial.println(ld2450.targets[0].angle);
+    }
   }
 }
 

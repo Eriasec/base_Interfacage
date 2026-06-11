@@ -4,16 +4,72 @@
 
 #define LD2450_HEADER 0xAAFF0300
 
+class Target {
+  public:
+    int x;
+    int y;
+    int speed;
+    int resolution;
+
+    Target() : x(0), y(0), speed(0), resolution(0) {}
+
+    void ProcessTargetData(char data[8]) {
+      x = ((data[1] << 8) & 0x7F) | data[0];
+      if(data[1] & 0x80) { // Check if the sign bit is set
+        x = -x; // Convert to negative value if needed
+      }
+      y = ((data[3] << 8) & 0x7F) | data[2];
+      if(data[3] & 0x80) { // Check if the sign bit is set
+        y = -y; // Convert to negative value if needed
+      }
+      speed = ((data[5] << 8) & 0x7F) | data[4];
+      if(data[5] & 0x80) { // Check if the sign bit is set
+        speed = -speed; // Convert to negative value if needed
+      }
+      resolution = (data[6] << 8) | data[7];
+    }
+};
+
+class LD2450 {
+  private:
+    char inputBuffer[30]; // Buffer to hold incoming data
+    
+  public:
+    Target targets[3]; // Assuming a maximum of 3 targets
+    void begin(HardwareSerial &serial) {
+      serial.begin(256000);
+      serial.setTimeout(1000); // Set a timeout for Serial reads
+    }
+
+    int read() {
+      Serial6.readBytes(this->inputBuffer, 30); // Read 30 bytes 
+      if(this->inputBuffer[0] == (0xAA) &&
+        this->inputBuffer[1] == (0xFF) &&
+        this->inputBuffer[2] == (0x03) &&
+        this->inputBuffer[3] == (0x00))
+      {
+        targets[0].ProcessTargetData(&inputBuffer[4]);  // Process the target data for the first target
+        targets[1].ProcessTargetData(&inputBuffer[12]); // Process the target data for the second target
+        targets[2].ProcessTargetData(&inputBuffer[20]); // Process the target data for the third target
+      } else {
+        Serial.println("Received unknown data:");
+        return -1; // Return -1 if the header does not match
+      }
+      return 1; // Return 1 if the header matches
+    }
+
+    String getLastTargetMessage() {
+      // This function should return a string representation of the last target message
+      // For demonstration purposes, we will return an empty string here
+      return "";
+    }
+};
+
 HardwareSerial Serial6(PC7, PC6);
 
 lv_obj_t * text;
-char inputBuffer[50] = {0}; // Buffer pour stocker les données reçues
-String inputString = "";      // a String to hold incoming data
-bool stringComplete = false;  // whether the string is complete
-int target1X = 0;
-int target1Y = 0;
-int target1Speed = 0;
-int target1Resolution = 0;
+Target target1;
+LD2450 ld2450;
 
 
 static void event_handler(lv_event_t * e)
@@ -69,12 +125,8 @@ void mySetup()
   Serial.begin(921600);
   Serial.println("Initializing...");
 
-  Serial6.begin(256000);
-  Serial6.setTimeout(10000); // Set a timeout for Serial6 reads
+  ld2450.begin(Serial6);
   Serial.println("Serial6 initialized at 256000 baud");
-
-  // reserve 200 bytes for the inputString:
-  inputString.reserve(200);
 
   // à décommenter pour tester la démo
   // lv_demo_widgets();
@@ -86,41 +138,15 @@ void mySetup()
 void loop()
 {
   while (Serial6.available()) {
-    Serial6.readBytes(inputBuffer, 30); // Read 30 bytes 
-    if(inputBuffer[0] == (0xAA) &&
-       inputBuffer[1] == (0xFF) &&
-       inputBuffer[2] == (0x03) &&
-       inputBuffer[3] == (0x00))
-    {
-    } else {
-      Serial.println("Received unknown data:");
-      while(1); // Stop processing if the header is incorrect
-    }
-    target1X = ((inputBuffer[5] << 8) & 0x7F)| inputBuffer[4];
-    if(inputBuffer[5] & 0x80) { // Check if the sign bit is set
-      target1X = -target1X; // Convert to negative value if needed
-    }
-    target1Y = ((inputBuffer[7] << 8) & 0x7F) | inputBuffer[6];
-    if(inputBuffer[7] & 0x80) { // Check if the sign bit is set
-      target1Y = -target1Y; // Convert to negative value if needed
-    }
-    target1Speed = ((inputBuffer[9] << 8) & 0x7F) | inputBuffer[8];
-    if(inputBuffer[9] & 0x80) { // Check if the sign bit is set
-      target1Speed = -target1Speed; // Convert to negative value if needed
-    }
-    target1Resolution = (inputBuffer[10] << 8) | inputBuffer[11];
-    // for(int i = 4; i < 28; i++) {
-    //   Serial.print(inputBuffer[i], HEX);
-    //   Serial.print(" ");
-    // }
+    ld2450.read();
     Serial.print("X: ");
-    Serial.print(target1X);
+    Serial.print(ld2450.targets[0].x);
     Serial.print(" Y: ");
-    Serial.print(target1Y);
+    Serial.print(ld2450.targets[0].y);
     Serial.print(" Speed: ");
-    Serial.print(target1Speed);
+    Serial.print(ld2450.targets[0].speed);
     Serial.print(" Resolution: ");
-    Serial.println(target1Resolution);
+    Serial.println(ld2450.targets[0].resolution);
   }
 }
 

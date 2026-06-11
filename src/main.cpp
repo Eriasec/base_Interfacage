@@ -10,6 +10,10 @@ lv_obj_t * text;
 char inputBuffer[50] = {0}; // Buffer pour stocker les données reçues
 String inputString = "";      // a String to hold incoming data
 bool stringComplete = false;  // whether the string is complete
+int target1X = 0;
+int target1Y = 0;
+int target1Speed = 0;
+int target1Resolution = 0;
 
 
 static void event_handler(lv_event_t * e)
@@ -92,11 +96,31 @@ void loop()
       Serial.println("Received unknown data:");
       while(1); // Stop processing if the header is incorrect
     }
-    for(int i = 0; i < 30; i++) {
-      Serial.print(inputBuffer[i], HEX);
-      Serial.print(" ");
+    target1X = ((inputBuffer[5] << 8) & 0x7F)| inputBuffer[4];
+    if(inputBuffer[5] & 0x80) { // Check if the sign bit is set
+      target1X = -target1X; // Convert to negative value if needed
     }
-    Serial.println();
+    target1Y = ((inputBuffer[7] << 8) & 0x7F) | inputBuffer[6];
+    if(inputBuffer[7] & 0x80) { // Check if the sign bit is set
+      target1Y = -target1Y; // Convert to negative value if needed
+    }
+    target1Speed = ((inputBuffer[9] << 8) & 0x7F) | inputBuffer[8];
+    if(inputBuffer[9] & 0x80) { // Check if the sign bit is set
+      target1Speed = -target1Speed; // Convert to negative value if needed
+    }
+    target1Resolution = (inputBuffer[10] << 8) | inputBuffer[11];
+    // for(int i = 4; i < 28; i++) {
+    //   Serial.print(inputBuffer[i], HEX);
+    //   Serial.print(" ");
+    // }
+    Serial.print("X: ");
+    Serial.print(target1X);
+    Serial.print(" Y: ");
+    Serial.print(target1Y);
+    Serial.print(" Speed: ");
+    Serial.print(target1Speed);
+    Serial.print(" Resolution: ");
+    Serial.println(target1Resolution);
   }
 }
 

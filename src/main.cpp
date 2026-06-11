@@ -1,32 +1,41 @@
 
 #include "lvgl.h"
+#include "../../lib/lvgl/examples/lv_examples.h"
 #include "Arduino.h"
 
-#define LD2450_HEADER 0xAAFF0300
+#define CANVAS_WIDTH  80
+#define CANVAS_HEIGHT  40
 
 class Target {
   public:
-    int x;
-    int y;
-    int speed;
-    int resolution;
+    int16_t x;
+    int16_t y;
+    int16_t speed;
+    int16_t resolution;
 
     Target() : x(0), y(0), speed(0), resolution(0) {}
 
     void ProcessTargetData(char data[8]) {
-      x = ((data[1] << 8) & 0x7F) | data[0];
+      x = data[0];
+      x |= ((data[1] & 0x7F) << 8);
       if(data[1] & 0x80) { // Check if the sign bit is set
         x = -x; // Convert to negative value if needed
       }
-      y = ((data[3] << 8) & 0x7F) | data[2];
+      y = data[2];
+      y |= ((data[3] & 0x7F) << 8);
       if(data[3] & 0x80) { // Check if the sign bit is set
         y = -y; // Convert to negative value if needed
       }
-      speed = ((data[5] << 8) & 0x7F) | data[4];
+      speed = data[4];
+      speed |= ((data[5] & 0x7F) << 8);
       if(data[5] & 0x80) { // Check if the sign bit is set
         speed = -speed; // Convert to negative value if needed
       }
-      resolution = (data[6] << 8) | data[7];
+      resolution = (data[7] << 8) | data[6];
+      Serial.print(data[0], HEX);
+      Serial.print(" ");
+      Serial.print(data[1], HEX);
+      Serial.println("");
     }
 };
 
@@ -86,31 +95,38 @@ static void event_handler(lv_event_t * e)
 
 void testLvgl()
 {
-  // Initialisations générales
-  lv_obj_t * label;
+    /*Create a buffer for the canvas*/
+    LV_DRAW_BUF_DEFINE_STATIC(draw_buf, CANVAS_WIDTH, CANVAS_HEIGHT, LV_COLOR_FORMAT_ARGB8888);
+    LV_DRAW_BUF_INIT_STATIC(draw_buf);
 
-  lv_obj_t * btn1 = lv_button_create(lv_screen_active());
-  lv_obj_add_event_cb(btn1, event_handler, LV_EVENT_ALL, NULL);
-  lv_obj_align(btn1, LV_ALIGN_CENTER, 0, -40);
-  lv_obj_remove_flag(btn1, LV_OBJ_FLAG_PRESS_LOCK);
+    /*Create a canvas and initialize its palette*/
+    lv_obj_t * canvas = lv_canvas_create(lv_screen_active());
+    lv_canvas_set_draw_buf(canvas, &draw_buf);
+    lv_obj_center(canvas);
 
-  label = lv_label_create(btn1);
-  lv_label_set_text(label, "Button");
-  lv_obj_center(label);
+    /*Red background (There is no dedicated alpha channel in indexed images so LV_OPA_COVER is ignored)*/
+    lv_canvas_fill_bg(canvas, lv_palette_main(LV_PALETTE_BLUE), LV_OPA_COVER);
 
-  lv_obj_t * btn2 = lv_button_create(lv_screen_active());
-  lv_obj_add_event_cb(btn2, event_handler, LV_EVENT_ALL, NULL);
-  lv_obj_align(btn2, LV_ALIGN_CENTER, 0, 40);
-  lv_obj_add_flag(btn2, LV_OBJ_FLAG_CHECKABLE);
-  lv_obj_set_height(btn2, LV_SIZE_CONTENT);
+    /*Create hole on the canvas*/
+    int32_t x;
+    int32_t y;
+    for(y = 0; y < 0; y++) {
+        for(x = 0; x < CANVAS_WIDTH; x++) {
+            lv_canvas_set_px(canvas, x, y, lv_palette_main(LV_PALETTE_BLUE), LV_OPA_50);
+        }
+    }
 
-  label = lv_label_create(btn2);
-  lv_label_set_text(label, "Toggle");
-  lv_obj_center(label);
+    for(y = 20; y < 30; y++) {
+        for(x = 5; x < 75; x++) {
+            lv_canvas_set_px(canvas, x, y, lv_palette_main(LV_PALETTE_BLUE), LV_OPA_20);
+        }
+    }
 
-  text = lv_label_create(lv_screen_active());
-  lv_label_set_text(text, "Hello, World!");
-  lv_obj_align(text, LV_ALIGN_CENTER, 0, 0);
+    for(y = 30; y < 40; y++) {
+        for(x = 5; x < 75; x++) {
+            lv_canvas_set_px(canvas, x, y, lv_palette_main(LV_PALETTE_BLUE), LV_OPA_0);
+        }
+    }
 }
 
 #ifdef ARDUINO

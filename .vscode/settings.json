@@ -1,5 +1,6 @@
 {
     "files.associations": {
         "stm32746g_discovery_audio.h": "c"
-    }
+    },
+    "cmake.sourceDirectory": "C:/Users/cesai/OneDrive - Université Paris-Saclay/Documents/IUT/S6/Interfaçage/base_Interfacage/lib/lvgl"
 }

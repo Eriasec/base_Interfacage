@@ -1,14 +1,16 @@
 
 #include "lvgl.h"
-#include <LD2450.h>
+#include "Arduino.h"
+
+#define LD2450_HEADER 0xAAFF0300
 
 HardwareSerial Serial6(PC7, PC6);
 
-LD2450 ld2450;
-int sensorGotValidTargets = -3;
-int receiveBuffer[LD2450_MAX_SENSOR_TARGETS];
 lv_obj_t * text;
-char buf[32];
+char inputBuffer[50] = {0}; // Buffer pour stocker les données reçues
+String inputString = "";      // a String to hold incoming data
+bool stringComplete = false;  // whether the string is complete
+
 
 static void event_handler(lv_event_t * e)
 {
@@ -60,9 +62,15 @@ void testLvgl()
 
 void mySetup()
 {
-  Serial.begin(115200);
+  Serial.begin(921600);
   Serial.println("Initializing...");
-  ld2450.begin(Serial6, false);
+
+  Serial6.begin(256000);
+  Serial6.setTimeout(10000); // Set a timeout for Serial6 reads
+  Serial.println("Serial6 initialized at 256000 baud");
+
+  // reserve 200 bytes for the inputString:
+  inputString.reserve(200);
 
   // à décommenter pour tester la démo
   // lv_demo_widgets();
@@ -73,22 +81,23 @@ void mySetup()
 
 void loop()
 {
-  sensorGotValidTargets = ld2450.read();
-  if(sensorGotValidTargets >= 0){
-    Serial.print("Valid targets detected: ");
-    Serial.println(sensorGotValidTargets);
-    Serial.println("Target details: ");
-    Serial.println(ld2450.getLastTargetMessage());
-    snprintf(buf, sizeof(buf), "Cibles: %d", sensorGotValidTargets);
-    lv_label_set_text(text, buf);
+  while (Serial6.available()) {
+    Serial6.readBytes(inputBuffer, 30); // Read 30 bytes 
+    if(inputBuffer[0] == (0xAA) &&
+       inputBuffer[1] == (0xFF) &&
+       inputBuffer[2] == (0x03) &&
+       inputBuffer[3] == (0x00))
+    {
+    } else {
+      Serial.println("Received unknown data:");
+      while(1); // Stop processing if the header is incorrect
+    }
+    for(int i = 0; i < 30; i++) {
+      Serial.print(inputBuffer[i], HEX);
+      Serial.print(" ");
+    }
+    Serial.println();
   }
-  // else {
-  //   Serial.print("ERROR : ");
-  //   Serial.println(sensorGotValidTargets);
-  // }
-
-  //lv_label_set_text(text, String(sensorGotValidTargets).c_str());
-  delay(500);
 }
 
 void myTask(void *pvParameters)

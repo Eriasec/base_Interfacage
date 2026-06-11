@@ -18,24 +18,20 @@ class Target {
     void ProcessTargetData(char data[8]) {
       x = data[0];
       x |= ((data[1] & 0x7F) << 8);
-      if(data[1] & 0x80) { // Check if the sign bit is set
+      if(!(data[1] & 0x80)) { // Check if the sign bit is set
         x = -x; // Convert to negative value if needed
       }
       y = data[2];
       y |= ((data[3] & 0x7F) << 8);
-      if(data[3] & 0x80) { // Check if the sign bit is set
+      if(!(data[3] & 0x80)) { // Check if the sign bit is set
         y = -y; // Convert to negative value if needed
       }
       speed = data[4];
       speed |= ((data[5] & 0x7F) << 8);
-      if(data[5] & 0x80) { // Check if the sign bit is set
+      if(!(data[5] & 0x80)) { // Check if the sign bit is set
         speed = -speed; // Convert to negative value if needed
       }
       resolution = (data[7] << 8) | data[6];
-      Serial.print(data[0], HEX);
-      Serial.print(" ");
-      Serial.print(data[1], HEX);
-      Serial.println("");
     }
 };
 

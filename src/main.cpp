@@ -83,6 +83,7 @@ lv_obj_t * targetLabel = nullptr;
 int selectedTarget = -1;
 Target target1;
 LD2450 ld2450;
+TIM_HandleTypeDef htim3;
 
 #define LD2450_MAX_RANGE_MM 8000
 
@@ -160,6 +161,23 @@ static void update_target_selection_style(void)
   }
 }
 
+static void MX_TIM3_Init(void)
+{
+  RCC->AHB1ENR |= 1<<1;               // Enable GPIOB
+  RCC->APB1ENR |= RCC_APB1ENR_TIM3EN; // Enable clock for TIM3
+  
+  GPIOB->MODER &= 1<<9; // PB4 en mode alternatif
+  GPIOB->AFR[0] &= (~0xF<<16); // PB4 AF2 (TIM3_CH1)
+  GPIOB->AFR[0] |= 2<<16; // PB4 AF2 (TIM3_CH1)
+
+  TIM3->CCMR1 |= 6<<4; // PWM mode 1 on channel 1
+  TIM3->CCER |= TIM_CCER_CC1E; // Enable channel 1
+
+  TIM3->PSC = 84 - 1; // Prescaler for 1 MHz timer clock
+  TIM3->ARR = 1000 - 1; // Auto-reload for 1 kHz PWM frequency
+}
+
+
 void testLvgl()
 {
   lv_obj_set_style_bg_color(lv_screen_active(), lv_color_hex(0x101820), 0);
@@ -215,6 +233,9 @@ void testLvgl()
 
 void mySetup()
 {
+  HAL_Init();
+  SystemClock_Config();
+  MX_TIM3_Init();
   Serial.begin(921600);
   Serial.println("Initializing...");
 
@@ -231,26 +252,14 @@ void mySetup()
 void loop()
 {
   while (Serial6.available()) {
-    if (ld2450.read()) {
+    if (ld2450.read()>=0) {
       if (lvglLock(pdMS_TO_TICKS(10))) {
         update_target_point();
         lvglUnlock();
       }
-      // Serial.print("X: ");
-      // Serial.print(ld2450.targets[0].x);
-      // Serial.print(" Y: ");
-      // Serial.print(ld2450.targets[0].y);
-      // Serial.print(" Speed: ");
-      // Serial.print(ld2450.targets[0].speed);
-      // Serial.print(" Resolution: ");
-      // Serial.print(ld2450.targets[0].resolution);
-      // Serial.print(" Absolute Distance: ");
-      // Serial.print(ld2450.targets[0].absoluteDistance);
-      // Serial.print(" Angle: ");
-      // Serial.println(ld2450.targets[0].angle);
     }
   }
-}
+} 
 
 void myTask(void *pvParameters)
 {

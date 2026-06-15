@@ -5,6 +5,11 @@
 
 #define CANVAS_WIDTH  80
 #define CANVAS_HEIGHT  40
+#define TIM3_ARR 37500
+#define TIM3_PSC 64
+// #define TIM3_ARR 33750
+// #define TIM3_PSC 32
+
 
 class Target {
   public:
@@ -167,14 +172,17 @@ static void MX_TIM3_Init(void)
   RCC->APB1ENR |= RCC_APB1ENR_TIM3EN; // Enable clock for TIM3
   
   GPIOB->MODER &= 1<<9; // PB4 en mode alternatif
-  GPIOB->AFR[0] &= (~0xF<<16); // PB4 AF2 (TIM3_CH1)
   GPIOB->AFR[0] |= 2<<16; // PB4 AF2 (TIM3_CH1)
 
   TIM3->CCMR1 |= 6<<4; // PWM mode 1 on channel 1
   TIM3->CCER |= TIM_CCER_CC1E; // Enable channel 1
 
-  TIM3->PSC = 84 - 1; // Prescaler for 1 MHz timer clock
-  TIM3->ARR = 1000 - 1; // Auto-reload for 1 kHz PWM frequency
+  TIM3->PSC = TIM3_PSC - 1; // Prescaler for 1 MHz timer clock
+  TIM3->ARR = TIM3_ARR - 1; 
+  TIM3->CCR1 = TIM3_ARR / 1.5; // 50% duty cycle
+  Serial.println("TIM3 initialized with ARR: " + String(TIM3->ARR) + " and CCR1: " + String(TIM3->CCR1));
+
+  TIM3->CR1 |= TIM_CR1_CEN; // Enable TIM3
 }
 
 
@@ -251,15 +259,20 @@ void mySetup()
 
 void loop()
 {
-  while (Serial6.available()) {
-    if (ld2450.read()>=0) {
-      if (lvglLock(pdMS_TO_TICKS(10))) {
-        update_target_point();
-        lvglUnlock();
-      }
-    }
+  // while (Serial6.available()) {
+  //   if (ld2450.read()>=0) {
+  //     if (lvglLock(pdMS_TO_TICKS(10))) {
+  //       update_target_point();
+  //       lvglUnlock();
+  //     }
+  //   }
+  // }
+  for (int i=TIM3_ARR/2; i<TIM3_ARR; i += 10000) {
+    TIM3->CCR1 = i; // 50% duty cycle
+    Serial.println("TIM3 CCR1 set to: " + String(TIM3->CCR1));
+    delay(1000);
   }
-} 
+}
 
 void myTask(void *pvParameters)
 {

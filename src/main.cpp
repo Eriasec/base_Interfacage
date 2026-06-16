@@ -3,13 +3,21 @@
 #include "../../lib/lvgl/examples/lv_examples.h"
 #include "Arduino.h"
 
+// LVGL configuration
 #define CANVAS_WIDTH  80
 #define CANVAS_HEIGHT  40
-#define TIM3_ARR 37500
-#define TIM3_PSC 64
-// #define TIM3_ARR 33750
-// #define TIM3_PSC 32
 
+// PWM configuration
+#define TIM3_PSC 64
+#define TIM3_ARR 33750
+#define PWM_PERIOD 20000                                      // 20us period for 50Hz PWM frequency
+#define FT90M_MINIMUM_STEP (TIM3_ARR * 4 / PWM_PERIOD)  // 4us step for 50Hz PWM frequency
+#define FT90M_RANGE_DEG 280                                   // 280 degrees full range for the stepper motor
+#define FT90M_MIN_PERIOD 1000                                 // 1ms minimum period for the stepper motor
+#define FT90M_MAX_PERIOD 2000                                 // 2ms maximum period for the stepper motor
+
+// LD2450 configuration
+#define LD2450_MAX_RANGE_MM 8000
 
 class Target {
   public:
@@ -18,7 +26,7 @@ class Target {
     int16_t speed;
     int16_t resolution;
     uint16_t absoluteDistance;
-    int8_t angle;
+    float angle;
 
     Target() : x(0), y(0), speed(0), resolution(0), absoluteDistance(0), angle(0) {}
 
@@ -86,105 +94,80 @@ lv_obj_t * targetPoint2 = nullptr;
 lv_obj_t * targetPoint3 = nullptr;
 lv_obj_t * targetLabel = nullptr;
 int selectedTarget = -1;
-Target target1;
 LD2450 ld2450;
 TIM_HandleTypeDef htim3;
 
-#define LD2450_MAX_RANGE_MM 8000
+// Function prototypes
+static void MX_TIM3_Init(void);
 
 static void update_target_selection_style(void);
+static void target_click_cb(lv_event_t * e);
+static void update_target_point(void);
+static void update_target_point_obj(lv_obj_t * obj, int index);
+static int map_value(int value, int in_min, int in_max, int out_min, int out_max);
+void travel_to_deg(float deg);
+void travel_relative_deg(float deg);
+void testLvgl();
 
-static int map_value(int value, int in_min, int in_max, int out_min, int out_max)
+#ifdef ARDUINO
+
+#include "lvglDrivers.h"
+
+// à décommenter pour tester la démo
+// #include "demos/lv_demos.h"
+
+void mySetup()
 {
-  if (in_max == in_min) return out_min;
-  long scaled = (long)(value - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
-  return (int)scaled;
+  HAL_Init();
+  SystemClock_Config();
+  MX_TIM3_Init();
+  Serial.begin(921600);
+  Serial.println("Initializing...");
+
+  ld2450.begin(Serial6);
+  Serial.println("Serial6 initialized at 256000 baud");
+
+  // travel_to_deg(0);
+  // delay(1000);
+  travel_to_deg(140);
+
+  // à décommenter pour tester la démo
+  // lv_demo_widgets();
+
+  // Initialisations générales
+  testLvgl();
 }
 
-static void update_target_point_obj(lv_obj_t * obj, int index)
+void loop()
 {
-  if (obj == nullptr) return;
-
-  int x = ld2450.targets[index].x;
-  int y = ld2450.targets[index].y;
-
-  int screen_w = lv_obj_get_width(lv_screen_active());
-  int screen_h = lv_obj_get_height(lv_screen_active());
-
-  int px = map_value(x, -LD2450_MAX_RANGE_MM, LD2450_MAX_RANGE_MM, 0, screen_w - 10);
-  int py = map_value(y, 0, LD2450_MAX_RANGE_MM, screen_h - 10, 0);
-
-  px = LV_CLAMP(px, 0, screen_w - 10);
-  py = LV_CLAMP(py, 0, screen_h - 10);
-
-  lv_obj_set_pos(obj, px, py);
-}
-
-static void update_target_point(void)
-{
-  update_target_point_obj(targetPoint, 0);
-  update_target_point_obj(targetPoint2, 1);
-  update_target_point_obj(targetPoint3, 2);
-
-  update_target_selection_style();
-
-  if (targetLabel != nullptr && selectedTarget < 0) {
-    lv_label_set_text_fmt(targetLabel, "T1:%d/%d  T2:%d/%d  T3:%d/%d",
-                          ld2450.targets[0].x, ld2450.targets[0].y,
-                          ld2450.targets[1].x, ld2450.targets[1].y,
-                          ld2450.targets[2].x, ld2450.targets[2].y);
+  while (Serial6.available()) {
+    if (ld2450.read()>=0) {
+      if (lvglLock(pdMS_TO_TICKS(10))) {
+        update_target_point();
+        lvglUnlock();
+      }
+      Serial.print("Target 0 angle: ");
+      Serial.println(ld2450.targets[0].angle);
+      travel_relative_deg(ld2450.targets[0].angle);
+    }
   }
 }
 
-
-static void target_click_cb(lv_event_t * e)
+void myTask(void *pvParameters)
 {
-  int index = (int)(intptr_t)lv_event_get_user_data(e);
-  selectedTarget = index;
+  // Init
+  TickType_t xLastWakeTime;
+  // Lecture du nombre de ticks quand la tâche débute
+  xLastWakeTime = xTaskGetTickCount();
+  while (1)
+  {
+    // Loop
 
-  if (targetLabel != nullptr) {
-    lv_label_set_text_fmt(targetLabel, "Cible selectionnee: T%d (X:%d Y:%d)",
-                          index + 1,
-                          ld2450.targets[index].x,
-                          ld2450.targets[index].y);
+    // Endort la tâche pendant le temps restant par rapport au réveil,
+    // ici 200ms, donc la tâche s'effectue toutes les 200ms
+    vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(200)); // toutes les 200 ms
   }
 }
-
-static void update_target_selection_style(void)
-{
-  lv_obj_t * points[] = { targetPoint, targetPoint2, targetPoint3 };
-  const lv_color_t colors[] = { lv_color_hex(0xFF0000), lv_color_hex(0x00FF00), lv_color_hex(0x00A5FF) };
-
-  for (int i = 0; i < 3; ++i) {
-    if (points[i] == nullptr) continue;
-
-    bool is_selected = (selectedTarget == i);
-    lv_obj_set_size(points[i], is_selected ? 14 : 10, is_selected ? 14 : 10);
-    lv_obj_set_style_bg_color(points[i], colors[i], 0);
-    lv_obj_set_style_border_color(points[i], is_selected ? lv_color_white() : lv_color_hex(0x202020), 0);
-    lv_obj_set_style_border_width(points[i], is_selected ? 2 : 0, 0);
-  }
-}
-
-static void MX_TIM3_Init(void)
-{
-  RCC->AHB1ENR |= 1<<1;               // Enable GPIOB
-  RCC->APB1ENR |= RCC_APB1ENR_TIM3EN; // Enable clock for TIM3
-  
-  GPIOB->MODER &= 1<<9; // PB4 en mode alternatif
-  GPIOB->AFR[0] |= 2<<16; // PB4 AF2 (TIM3_CH1)
-
-  TIM3->CCMR1 |= 6<<4; // PWM mode 1 on channel 1
-  TIM3->CCER |= TIM_CCER_CC1E; // Enable channel 1
-
-  TIM3->PSC = TIM3_PSC - 1; // Prescaler for 1 MHz timer clock
-  TIM3->ARR = TIM3_ARR - 1; 
-  TIM3->CCR1 = TIM3_ARR / 1.5; // 50% duty cycle
-  Serial.println("TIM3 initialized with ARR: " + String(TIM3->ARR) + " and CCR1: " + String(TIM3->CCR1));
-
-  TIM3->CR1 |= TIM_CR1_CEN; // Enable TIM3
-}
-
 
 void testLvgl()
 {
@@ -232,64 +215,6 @@ void testLvgl()
   lv_label_set_text(targetLabel, "Attente des mesures...");
 }
 
-#ifdef ARDUINO
-
-#include "lvglDrivers.h"
-
-// à décommenter pour tester la démo
-// #include "demos/lv_demos.h"
-
-void mySetup()
-{
-  HAL_Init();
-  SystemClock_Config();
-  MX_TIM3_Init();
-  Serial.begin(921600);
-  Serial.println("Initializing...");
-
-  ld2450.begin(Serial6);
-  Serial.println("Serial6 initialized at 256000 baud");
-
-  // à décommenter pour tester la démo
-  // lv_demo_widgets();
-
-  // Initialisations générales
-  testLvgl();
-}
-
-void loop()
-{
-  // while (Serial6.available()) {
-  //   if (ld2450.read()>=0) {
-  //     if (lvglLock(pdMS_TO_TICKS(10))) {
-  //       update_target_point();
-  //       lvglUnlock();
-  //     }
-  //   }
-  // }
-  for (int i=TIM3_ARR/2; i<TIM3_ARR; i += 10000) {
-    TIM3->CCR1 = i; // 50% duty cycle
-    Serial.println("TIM3 CCR1 set to: " + String(TIM3->CCR1));
-    delay(1000);
-  }
-}
-
-void myTask(void *pvParameters)
-{
-  // Init
-  TickType_t xLastWakeTime;
-  // Lecture du nombre de ticks quand la tâche débute
-  xLastWakeTime = xTaskGetTickCount();
-  while (1)
-  {
-    // Loop
-
-    // Endort la tâche pendant le temps restant par rapport au réveil,
-    // ici 200ms, donc la tâche s'effectue toutes les 200ms
-    vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(200)); // toutes les 200 ms
-  }
-}
-
 #else
 
 #include "lvgl.h"
@@ -311,3 +236,125 @@ int main(void)
 }
 
 #endif
+
+static void update_target_selection_style(void)
+{
+  lv_obj_t * points[] = { targetPoint, targetPoint2, targetPoint3 };
+  const lv_color_t colors[] = { lv_color_hex(0xFF0000), lv_color_hex(0x00FF00), lv_color_hex(0x00A5FF) };
+
+  for (int i = 0; i < 3; ++i) {
+    if (points[i] == nullptr) continue;
+
+    bool is_selected = (selectedTarget == i);
+    lv_obj_set_size(points[i], is_selected ? 14 : 10, is_selected ? 14 : 10);
+    lv_obj_set_style_bg_color(points[i], colors[i], 0);
+    lv_obj_set_style_border_color(points[i], is_selected ? lv_color_white() : lv_color_hex(0x202020), 0);
+    lv_obj_set_style_border_width(points[i], is_selected ? 2 : 0, 0);
+  }
+}
+
+static void target_click_cb(lv_event_t * e)
+{
+  int index = (int)(intptr_t)lv_event_get_user_data(e);
+  selectedTarget = index;
+
+  if (targetLabel != nullptr) {
+    lv_label_set_text_fmt(targetLabel, "Cible selectionnee: T%d (X:%d Y:%d)",
+                          index + 1,
+                          ld2450.targets[index].x,
+                          ld2450.targets[index].y);
+  }
+}
+
+static void update_target_point(void)
+{
+  update_target_point_obj(targetPoint, 0);
+  update_target_point_obj(targetPoint2, 1);
+  update_target_point_obj(targetPoint3, 2);
+
+  update_target_selection_style();
+
+  if (targetLabel != nullptr && selectedTarget < 0) {
+    lv_label_set_text_fmt(targetLabel, "T1:%d/%d  T2:%d/%d  T3:%d/%d",
+                          ld2450.targets[0].x, ld2450.targets[0].y,
+                          ld2450.targets[1].x, ld2450.targets[1].y,
+                          ld2450.targets[2].x, ld2450.targets[2].y);
+  }
+}
+
+static void update_target_point_obj(lv_obj_t * obj, int index)
+{
+  if (obj == nullptr) return;
+
+  int x = ld2450.targets[index].x;
+  int y = ld2450.targets[index].y;
+
+  int screen_w = lv_obj_get_width(lv_screen_active());
+  int screen_h = lv_obj_get_height(lv_screen_active());
+
+  int px = map_value(x, -LD2450_MAX_RANGE_MM, LD2450_MAX_RANGE_MM, 0, screen_w - 10);
+  int py = map_value(y, 0, LD2450_MAX_RANGE_MM, screen_h - 10, 0);
+
+  px = LV_CLAMP(px, 0, screen_w - 10);
+  py = LV_CLAMP(py, 0, screen_h - 10);
+
+  lv_obj_set_pos(obj, px, py);
+}
+
+static void MX_TIM3_Init(void)
+{
+  RCC->AHB1ENR |= 1<<1;               // Enable GPIOB
+  RCC->APB1ENR |= RCC_APB1ENR_TIM3EN; // Enable clock for TIM3
+  
+  GPIOB->MODER &= 1<<9; // PB4 en mode alternatif
+  GPIOB->AFR[0] |= 2<<16; // PB4 AF2 (TIM3_CH1)
+
+  TIM3->CCMR1 |= 6<<4; // PWM mode 1 on channel 1
+  TIM3->CCER |= TIM_CCER_CC1E; // Enable channel 1
+
+  TIM3->PSC = TIM3_PSC - 1; // Prescaler for 1 MHz timer clock
+  TIM3->ARR = TIM3_ARR - 1; 
+  TIM3->CCR1 = TIM3_ARR / 1.5; // 50% duty cycle
+  Serial.println("TIM3 initialized with ARR: " + String(TIM3->ARR) + " and CCR1: " + String(TIM3->CCR1));
+
+  TIM3->CR1 |= TIM_CR1_CEN; // Enable TIM3
+}
+
+static int map_value(int value, int in_min, int in_max, int out_min, int out_max)
+{
+  if (in_max == in_min) return out_min;
+  long scaled = (long)(value - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+  return (int)scaled;
+}
+
+void travel_to_deg(float deg) {
+  int Counter = int(deg * (TIM3_ARR / (PWM_PERIOD  / (FT90M_MAX_PERIOD - FT90M_MIN_PERIOD))) / FT90M_RANGE_DEG + (TIM3_ARR / (PWM_PERIOD  / FT90M_MIN_PERIOD)));
+  if(abs((int)(Counter - TIM3->CCR1)) > FT90M_MINIMUM_STEP)
+  {
+    if(Counter < (TIM3_ARR / (PWM_PERIOD  / FT90M_MIN_PERIOD))) {
+      Counter = (TIM3_ARR / (PWM_PERIOD  / FT90M_MIN_PERIOD));
+    } else if(Counter > (TIM3_ARR / (PWM_PERIOD  / FT90M_MAX_PERIOD))) {
+      Counter = (TIM3_ARR / (PWM_PERIOD  / FT90M_MAX_PERIOD));
+    }
+    if((Counter - TIM3->CCR1) > 1000)
+    {
+      TIM3->CCR1 += 1000;
+    } else if((Counter - TIM3->CCR1) < -1000)
+    {
+      TIM3->CCR1 -= 1000;
+    } else {
+      TIM3->CCR1 = Counter;
+    }
+    Serial.println("Traveling to " + String(deg) + " degrees. TIM3 CCR1 set to: " + String(TIM3->CCR1) + ", Target CCR1: " + String(Counter) + " Delta: " + String(abs((int)(Counter - TIM3->CCR1))) + " Minimum Step: " + String(FT90M_MINIMUM_STEP));
+    Serial.println();
+  } else {
+    Serial.println("Travel to " + String(deg) + " degrees ignored. Change too small." + " Current CCR1: " + String(TIM3->CCR1) + ", Target CCR1: " + String(Counter) + " Delta: " + String(abs((int)(Counter - TIM3->CCR1))) + " Minimum Step: " + String(FT90M_MINIMUM_STEP));
+  }
+}
+
+void travel_relative_deg(float deg) {
+  float currentDeg = ((TIM3->CCR1 - FT90M_MIN_PERIOD) / (FT90M_MAX_PERIOD - FT90M_MIN_PERIOD)) * FT90M_RANGE_DEG;
+  float newDeg = currentDeg + deg;
+  if (newDeg < 0) newDeg = 0;
+  travel_to_deg(newDeg);
+}

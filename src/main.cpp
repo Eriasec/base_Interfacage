@@ -11,10 +11,13 @@
 #define TIM3_PSC 64
 #define TIM3_ARR 33750
 #define PWM_PERIOD 20000                                      // 20us period for 50Hz PWM frequency
-#define FT90M_MINIMUM_STEP (TIM3_ARR * 4 / PWM_PERIOD)  // 4us step for 50Hz PWM frequency
+#define FT90M_MINIMUM_STEP (TIM3_ARR * 4 / PWM_PERIOD)        // 4us step for 50Hz PWM frequency
 #define FT90M_RANGE_DEG 280                                   // 280 degrees full range for the stepper motor
-#define FT90M_MIN_PERIOD 1000                                 // 1ms minimum period for the stepper motor
-#define FT90M_MAX_PERIOD 2000                                 // 2ms maximum period for the stepper motor
+#define FT90M_MIN_PERIOD 1000.0                                 // 1ms minimum period for the stepper motor
+#define FT90M_MAX_PERIOD 2000.0                                 // 2ms maximum period for the stepper motor
+#define PWM_MAX_TICS (float)(TIM3_ARR * FT90M_MAX_PERIOD) / PWM_PERIOD   // Maximum ticks for the PWM signal
+#define PWM_MIN_TICS (float)(TIM3_ARR * FT90M_MIN_PERIOD) / PWM_PERIOD   // Minimum ticks for the PWM signal
+#define PWM_USABLE_TICS (float)PWM_MAX_TICS - PWM_MIN_TICS               // Usable ticks for the PWM signal
 
 // LD2450 configuration
 #define LD2450_MAX_RANGE_MM 8000
@@ -96,6 +99,7 @@ lv_obj_t * targetLabel = nullptr;
 int selectedTarget = -1;
 LD2450 ld2450;
 TIM_HandleTypeDef htim3;
+int holdMillis = 0;
 
 // Function prototypes
 static void MX_TIM3_Init(void);
@@ -127,9 +131,8 @@ void mySetup()
   ld2450.begin(Serial6);
   Serial.println("Serial6 initialized at 256000 baud");
 
-  // travel_to_deg(0);
-  // delay(1000);
   travel_to_deg(140);
+  holdMillis = millis();
 
   // à décommenter pour tester la démo
   // lv_demo_widgets();
@@ -146,9 +149,12 @@ void loop()
         update_target_point();
         lvglUnlock();
       }
-      Serial.print("Target 0 angle: ");
-      Serial.println(ld2450.targets[0].angle);
-      travel_relative_deg(ld2450.targets[0].angle);
+      // Serial.print("Target 0 angle: ");
+      // Serial.println(ld2450.targets[0].angle);
+      if(millis() - holdMillis > 500) { // Only travel if more than 1 second has passed since the last travel
+        holdMillis = millis();
+        travel_relative_deg(ld2450.targets[0].angle);
+      }
     }
   }
 }
@@ -328,23 +334,10 @@ static int map_value(int value, int in_min, int in_max, int out_min, int out_max
 }
 
 void travel_to_deg(float deg) {
-  int Counter = int(deg * (TIM3_ARR / (PWM_PERIOD  / (FT90M_MAX_PERIOD - FT90M_MIN_PERIOD))) / FT90M_RANGE_DEG + (TIM3_ARR / (PWM_PERIOD  / FT90M_MIN_PERIOD)));
+  int Counter = (deg / FT90M_RANGE_DEG) * (PWM_USABLE_TICS) + PWM_MIN_TICS;
   if(abs((int)(Counter - TIM3->CCR1)) > FT90M_MINIMUM_STEP)
   {
-    if(Counter < (TIM3_ARR / (PWM_PERIOD  / FT90M_MIN_PERIOD))) {
-      Counter = (TIM3_ARR / (PWM_PERIOD  / FT90M_MIN_PERIOD));
-    } else if(Counter > (TIM3_ARR / (PWM_PERIOD  / FT90M_MAX_PERIOD))) {
-      Counter = (TIM3_ARR / (PWM_PERIOD  / FT90M_MAX_PERIOD));
-    }
-    if((Counter - TIM3->CCR1) > 1000)
-    {
-      TIM3->CCR1 += 1000;
-    } else if((Counter - TIM3->CCR1) < -1000)
-    {
-      TIM3->CCR1 -= 1000;
-    } else {
-      TIM3->CCR1 = Counter;
-    }
+    TIM3->CCR1 = Counter;
     Serial.println("Traveling to " + String(deg) + " degrees. TIM3 CCR1 set to: " + String(TIM3->CCR1) + ", Target CCR1: " + String(Counter) + " Delta: " + String(abs((int)(Counter - TIM3->CCR1))) + " Minimum Step: " + String(FT90M_MINIMUM_STEP));
     Serial.println();
   } else {
@@ -352,9 +345,12 @@ void travel_to_deg(float deg) {
   }
 }
 
-void travel_relative_deg(float deg) {
-  float currentDeg = ((TIM3->CCR1 - FT90M_MIN_PERIOD) / (FT90M_MAX_PERIOD - FT90M_MIN_PERIOD)) * FT90M_RANGE_DEG;
-  float newDeg = currentDeg + deg;
+void travel_relative_deg(float relativeDeg) {
+  float currentDeg = ((TIM3->CCR1 - PWM_MIN_TICS) / (PWM_USABLE_TICS*1.0)) * FT90M_RANGE_DEG;
+  float newDeg = currentDeg + relativeDeg;
   if (newDeg < 0) newDeg = 0;
+  if (newDeg > FT90M_RANGE_DEG) newDeg = FT90M_RANGE_DEG;
+  Serial.println("Traveling relative by " + String(relativeDeg) + " degrees. Current: " + String(currentDeg) + " degrees, New: " + String(newDeg) + " degrees.");
+  Serial.println(TIM3->CCR1);
   travel_to_deg(newDeg);
 }

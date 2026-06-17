@@ -100,6 +100,8 @@ int selectedTarget = -1;
 LD2450 ld2450;
 TIM_HandleTypeDef htim3;
 int holdMillis = 0;
+int pwmCounter = PWM_USABLE_TICS/2;
+int pwmGoalCounter = PWM_USABLE_TICS/2;
 
 // Function prototypes
 static void MX_TIM3_Init(void);
@@ -109,8 +111,8 @@ static void target_click_cb(lv_event_t * e);
 static void update_target_point(void);
 static void update_target_point_obj(lv_obj_t * obj, int index);
 static int map_value(int value, int in_min, int in_max, int out_min, int out_max);
-void travel_to_deg(float deg);
-void travel_relative_deg(float deg);
+int deg_to_tics(float deg);
+int relative_deg_to_tics(float relativeDeg);
 void testLvgl();
 
 #ifdef ARDUINO
@@ -131,7 +133,7 @@ void mySetup()
   ld2450.begin(Serial6);
   Serial.println("Serial6 initialized at 256000 baud");
 
-  travel_to_deg(140);
+  TIM3->CCR1 = deg_to_tics(140);
   holdMillis = millis();
 
   // à décommenter pour tester la démo
@@ -151,9 +153,14 @@ void loop()
       }
       // Serial.print("Target 0 angle: ");
       // Serial.println(ld2450.targets[0].angle);
-      if(millis() - holdMillis > 500) { // Only travel if more than 1 second has passed since the last travel
+      if(millis() - holdMillis > 100) { // Only travel if more than 1 second has passed since the last travel
         holdMillis = millis();
-        travel_relative_deg(ld2450.targets[0].angle);
+        pwmGoalCounter = relative_deg_to_tics(ld2450.targets[0].angle);
+        if(pwmGoalCounter > -1) {
+          pwmCounter += (pwmGoalCounter - pwmCounter) * 0.2;
+          // Serial.println(pwmCounter);
+          TIM3->CCR1 = pwmCounter;
+        }
       }
     }
   }
@@ -333,24 +340,25 @@ static int map_value(int value, int in_min, int in_max, int out_min, int out_max
   return (int)scaled;
 }
 
-void travel_to_deg(float deg) {
-  int Counter = (deg / FT90M_RANGE_DEG) * (PWM_USABLE_TICS) + PWM_MIN_TICS;
-  if(abs((int)(Counter - TIM3->CCR1)) > FT90M_MINIMUM_STEP)
+int deg_to_tics(float deg) {
+  int counter = (deg / FT90M_RANGE_DEG) * (PWM_USABLE_TICS) + PWM_MIN_TICS;
+  if(abs((int)(counter - TIM3->CCR1)) > FT90M_MINIMUM_STEP)
   {
-    TIM3->CCR1 = Counter;
-    Serial.println("Traveling to " + String(deg) + " degrees. TIM3 CCR1 set to: " + String(TIM3->CCR1) + ", Target CCR1: " + String(Counter) + " Delta: " + String(abs((int)(Counter - TIM3->CCR1))) + " Minimum Step: " + String(FT90M_MINIMUM_STEP));
-    Serial.println();
+    // Serial.println("Traveling to " + String(deg) + " degrees. TIM3 CCR1 set to: " + String(TIM3->CCR1) + ", Target CCR1: " + String(Counter) + " Delta: " + String(abs((int)(Counter - TIM3->CCR1))) + " Minimum Step: " + String(FT90M_MINIMUM_STEP));
+    // Serial.println();
+    return counter;
   } else {
-    Serial.println("Travel to " + String(deg) + " degrees ignored. Change too small." + " Current CCR1: " + String(TIM3->CCR1) + ", Target CCR1: " + String(Counter) + " Delta: " + String(abs((int)(Counter - TIM3->CCR1))) + " Minimum Step: " + String(FT90M_MINIMUM_STEP));
+    Serial.println("Travel to " + String(deg) + " degrees ignored. Change too small." + " Current CCR1: " + String(TIM3->CCR1) + ", Target CCR1: " + String(counter) + " Delta: " + String(abs((int)(counter - TIM3->CCR1))) + " Minimum Step: " + String(FT90M_MINIMUM_STEP));
+    return -1;
   }
 }
 
-void travel_relative_deg(float relativeDeg) {
+int relative_deg_to_tics(float relativeDeg) {
   float currentDeg = ((TIM3->CCR1 - PWM_MIN_TICS) / (PWM_USABLE_TICS*1.0)) * FT90M_RANGE_DEG;
   float newDeg = currentDeg + relativeDeg;
   if (newDeg < 0) newDeg = 0;
   if (newDeg > FT90M_RANGE_DEG) newDeg = FT90M_RANGE_DEG;
-  Serial.println("Traveling relative by " + String(relativeDeg) + " degrees. Current: " + String(currentDeg) + " degrees, New: " + String(newDeg) + " degrees.");
-  Serial.println(TIM3->CCR1);
-  travel_to_deg(newDeg);
+  // Serial.println("Traveling relative by " + String(relativeDeg) + " degrees. Current: " + String(currentDeg) + " degrees, New: " + String(newDeg) + " degrees.");
+  // Serial.println("CCR: " + TIM3->CCR1);
+  return deg_to_tics(newDeg);
 }

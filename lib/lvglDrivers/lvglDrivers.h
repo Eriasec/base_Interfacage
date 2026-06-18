@@ -12,6 +12,4 @@ void myTask(void *pvParameters);
 bool lvglLock(TickType_t xBlockTime = portMAX_DELAY);
 bool lvglUnlock();
 
-void vTaskStepperMotor(void * pvParameters);
-
 #endif // LVGL_DRIVERS_H

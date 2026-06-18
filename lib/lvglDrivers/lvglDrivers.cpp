@@ -105,6 +105,7 @@ void setup()
 
     xTaskCreate(lvglTask, NULL, 16384, NULL, osPriorityNormal, NULL);
     xTaskCreate(myTask, NULL, 16384, NULL, osPriorityNormal, NULL);
+    xTaskCreate(vTaskStepperMotor, NULL, 16384, NULL, osPriorityNormal, NULL);
 
     vTaskStartScheduler();
     Serial.println("Insufficient RAM");

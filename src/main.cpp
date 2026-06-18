@@ -13,8 +13,8 @@
 #define PWM_PERIOD 20000                                      // 20us period for 50Hz PWM frequency
 #define FT90M_MINIMUM_STEP (TIM3_ARR * 4 / PWM_PERIOD)        // 4us step for 50Hz PWM frequency
 #define FT90M_RANGE_DEG 280                                   // 280 degrees full range for the stepper motor
-#define FT90M_MIN_PERIOD 1000.0                                 // 1ms minimum period for the stepper motor
-#define FT90M_MAX_PERIOD 2000.0                                 // 2ms maximum period for the stepper motor
+#define FT90M_MIN_PERIOD 1000                                 // 1ms minimum period for the stepper motor
+#define FT90M_MAX_PERIOD 2000                                 // 2ms maximum period for the stepper motor
 #define PWM_MAX_TICS (float)(TIM3_ARR * FT90M_MAX_PERIOD) / PWM_PERIOD   // Maximum ticks for the PWM signal
 #define PWM_MIN_TICS (float)(TIM3_ARR * FT90M_MIN_PERIOD) / PWM_PERIOD   // Minimum ticks for the PWM signal
 #define PWM_USABLE_TICS (float)PWM_MAX_TICS - PWM_MIN_TICS               // Usable ticks for the PWM signal
@@ -29,11 +29,12 @@ class Target {
     int16_t speed;
     int16_t resolution;
     uint16_t absoluteDistance;
+    bool targetIsValid;
     float angle;
 
-    Target() : x(0), y(0), speed(0), resolution(0), absoluteDistance(0), angle(0) {}
+    Target() : x(0), y(0), speed(0), resolution(0), absoluteDistance(0), angle(140), targetIsValid(false) {}
 
-    void ProcessTargetData(char data[8]) {
+    bool ProcessTargetData(char data[8]) {
       x = data[0];
       x |= ((data[1] & 0x7F) << 8);
       if(!(data[1] & 0x80)) { // Check if the sign bit is set
@@ -51,7 +52,16 @@ class Target {
       }
       resolution = (data[7] << 8) | data[6];
       absoluteDistance = abs(x) + abs(y); // Calculate absolute distance as the sum of absolute x and y values
-      angle = (atan2(y, x) * 180 / PI) - 90; // Calculate angle in degrees
+      if(x & y)
+      {
+        targetIsValid = true;
+        angle = (atan2(y, x) * 180 / PI) - 90; // Calculate angle in degrees
+        return targetIsValid;
+      } else {
+        targetIsValid = false;
+        angle = 0;
+        return targetIsValid;
+      }
     }
 };
 
@@ -97,23 +107,28 @@ lv_obj_t * targetPoint2 = nullptr;
 lv_obj_t * targetPoint3 = nullptr;
 lv_obj_t * targetLabel = nullptr;
 int selectedTarget = -1;
+bool trackingEnabled = false;
 LD2450 ld2450;
 TIM_HandleTypeDef htim3;
 int holdMillis = 0;
 int pwmCounter = PWM_USABLE_TICS/2;
 int pwmGoalCounter = PWM_USABLE_TICS/2;
 
+TaskHandle_t xServoTaskHandle = NULL;
+
 // Function prototypes
 static void MX_TIM3_Init(void);
 
 static void update_target_selection_style(void);
 static void target_click_cb(lv_event_t * e);
+static void button_click_cb(lv_event_t * e);
 static void update_target_point(void);
 static void update_target_point_obj(lv_obj_t * obj, int index);
 static int map_value(int value, int in_min, int in_max, int out_min, int out_max);
 int deg_to_tics(float deg);
 int relative_deg_to_tics(float relativeDeg);
 void testLvgl();
+void lv_example_btn_2(void);
 
 #ifdef ARDUINO
 
@@ -135,12 +150,18 @@ void mySetup()
 
   TIM3->CCR1 = deg_to_tics(140);
   holdMillis = millis();
+  // xTaskCreate( vTaskStepperMotor, "Stepper", 512, NULL, tskIDLE_PRIORITY+2, &xServoTaskHandle);
+  // if(xTaskCreate( vTaskStepperMotor, NULL, 16384, NULL, osPriorityAboveNormal, NULL) != pdPASS) {
+  //   Serial.println("ERREUR: Tache non crée");
+  //   while(1);
+  // }
 
   // à décommenter pour tester la démo
   // lv_demo_widgets();
 
   // Initialisations générales
   testLvgl();
+  lv_example_btn_2();
 }
 
 void loop()
@@ -153,11 +174,12 @@ void loop()
       }
       // Serial.print("Target 0 angle: ");
       // Serial.println(ld2450.targets[0].angle);
-      if(millis() - holdMillis > 100) { // Only travel if more than 1 second has passed since the last travel
+      if(trackingEnabled) {
+        // Serial.println(millis() - holdMillis);
         holdMillis = millis();
-        pwmGoalCounter = relative_deg_to_tics(ld2450.targets[0].angle);
+        pwmGoalCounter = relative_deg_to_tics(ld2450.targets[selectedTarget].angle);
         if(pwmGoalCounter > -1) {
-          pwmCounter += (pwmGoalCounter - pwmCounter) * 0.2;
+          pwmCounter = (pwmGoalCounter - pwmCounter) * 0.05 + pwmCounter;
           // Serial.println(pwmCounter);
           TIM3->CCR1 = pwmCounter;
         }
@@ -179,6 +201,13 @@ void myTask(void *pvParameters)
     // Endort la tâche pendant le temps restant par rapport au réveil,
     // ici 200ms, donc la tâche s'effectue toutes les 200ms
     vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(200)); // toutes les 200 ms
+  }
+}
+
+void vTaskStepperMotor(void * pvParameters) {
+  Serial.println("Tache initialisée");
+  while(1) {
+    Serial.println("task");
   }
 }
 
@@ -217,7 +246,7 @@ void testLvgl()
   lv_obj_set_pos(targetPoint3, 0, 0);
 
   targetLabel = lv_label_create(lv_screen_active());
-  lv_obj_set_size(targetLabel, lv_pct(95), LV_SIZE_CONTENT);
+  lv_obj_set_size(targetLabel, lv_pct(55), LV_SIZE_CONTENT);
   lv_obj_set_style_text_color(targetLabel, lv_color_hex(0xFFFFFF), 0);
   lv_obj_set_style_text_font(targetLabel, &lv_font_montserrat_14, 0);
   lv_obj_set_style_bg_opa(targetLabel, LV_OPA_90, 0);
@@ -226,6 +255,37 @@ void testLvgl()
   lv_obj_set_style_radius(targetLabel, 6, 0);
   lv_obj_align(targetLabel, LV_ALIGN_TOP_LEFT, 6, 6);
   lv_label_set_text(targetLabel, "Attente des mesures...");
+}
+
+void lv_example_btn_2(void)
+{
+    lv_obj_t * btn1 = lv_btn_create(lv_scr_act());
+    lv_obj_set_size(btn1, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_align(btn1, LV_ALIGN_BOTTOM_LEFT, 6, -6);
+    lv_obj_add_event_cb(btn1, button_click_cb, LV_EVENT_CLICKED, (void *)0);
+
+    lv_obj_t * label = lv_label_create(btn1);
+    lv_label_set_text(label, "Changer cible");
+    lv_obj_center(label);
+
+    lv_obj_t * btn2 = lv_btn_create(lv_scr_act());
+    lv_obj_add_event_cb(btn2, button_click_cb, LV_EVENT_ALL, (void *) 2);
+    lv_obj_align(btn2, LV_ALIGN_BOTTOM_RIGHT, -6, -6);
+    lv_obj_add_flag(btn2, LV_OBJ_FLAG_CHECKABLE);
+    lv_obj_set_height(btn2, LV_SIZE_CONTENT);
+
+    label = lv_label_create(btn2);
+    lv_label_set_text(label, "Traque");
+    lv_obj_center(label);
+
+    lv_obj_t * btn3 = lv_btn_create(lv_scr_act());
+    lv_obj_set_size(btn3, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_align(btn3, LV_ALIGN_TOP_RIGHT, -6, 6);
+    lv_obj_add_event_cb(btn3, button_click_cb, LV_EVENT_CLICKED, (void *)1);
+
+    label = lv_label_create(btn3);
+    lv_label_set_text(label, "Centrer");
+    lv_obj_center(label);
 }
 
 #else
@@ -270,13 +330,6 @@ static void target_click_cb(lv_event_t * e)
 {
   int index = (int)(intptr_t)lv_event_get_user_data(e);
   selectedTarget = index;
-
-  if (targetLabel != nullptr) {
-    lv_label_set_text_fmt(targetLabel, "Cible selectionnee: T%d (X:%d Y:%d)",
-                          index + 1,
-                          ld2450.targets[index].x,
-                          ld2450.targets[index].y);
-  }
 }
 
 static void update_target_point(void)
@@ -292,6 +345,8 @@ static void update_target_point(void)
                           ld2450.targets[0].x, ld2450.targets[0].y,
                           ld2450.targets[1].x, ld2450.targets[1].y,
                           ld2450.targets[2].x, ld2450.targets[2].y);
+  } else {
+    lv_label_set_text_fmt(targetLabel, "Cible selectionnee: %d (%d/%d)", selectedTarget, ld2450.targets[selectedTarget].x, ld2450.targets[selectedTarget].y);
   }
 }
 
@@ -312,6 +367,23 @@ static void update_target_point_obj(lv_obj_t * obj, int index)
   py = LV_CLAMP(py, 0, screen_h - 10);
 
   lv_obj_set_pos(obj, px, py);
+}
+
+static void button_click_cb(lv_event_t * e) {
+  lv_event_code_t code = lv_event_get_code(e);
+  if(code == LV_EVENT_CLICKED) {
+    if((int)(intptr_t)lv_event_get_user_data(e) == 0) {
+      selectedTarget += 1;
+      if(selectedTarget >=3) {
+        selectedTarget = 0;
+      } 
+    } else if((int)(intptr_t)lv_event_get_user_data(e) == 1) {
+      TIM3->CCR1 = deg_to_tics(140);
+    }
+  } else if(code == LV_EVENT_VALUE_CHANGED) {
+    trackingEnabled = !trackingEnabled;
+    Serial.println(trackingEnabled);
+  }
 }
 
 static void MX_TIM3_Init(void)
@@ -348,7 +420,7 @@ int deg_to_tics(float deg) {
     // Serial.println();
     return counter;
   } else {
-    Serial.println("Travel to " + String(deg) + " degrees ignored. Change too small." + " Current CCR1: " + String(TIM3->CCR1) + ", Target CCR1: " + String(counter) + " Delta: " + String(abs((int)(counter - TIM3->CCR1))) + " Minimum Step: " + String(FT90M_MINIMUM_STEP));
+    // Serial.println("Travel to " + String(deg) + " degrees ignored. Change too small." + " Current CCR1: " + String(TIM3->CCR1) + ", Target CCR1: " + String(counter) + " Delta: " + String(abs((int)(counter - TIM3->CCR1))) + " Minimum Step: " + String(FT90M_MINIMUM_STEP));
     return -1;
   }
 }
